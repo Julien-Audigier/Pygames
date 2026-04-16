@@ -1,0 +1,92 @@
+"SNAKE GAME FOR CASIO fx-9750GIII - with simple menu"
+"Controls: arrow keys to move, AC to quit, EXE to select"
+ClrGraph
+Range 0,127,0,0,0,63,0,0
+AxesOff
+GridOff
+
+"Simple menu implementation using Getkey"
+
+Lbl 100
+ClrText
+Locate 1,1,"SNAKE - Menu"
+Locate 1,3,"> Start"
+Locate 1,4,"  Options"
+Locate 1,5,"  Exit"
+
+0→S
+While 1
+Getkey→K
+If K=25 Then S+1→S
+If K=26 Then S-1→S
+If S<0 Then 2→S
+If S>2 Then 0→S
+If K=31 Then Goto 200+S
+If K=47 Then Stop
+EndWhile
+
+"Start: label 200"
+Lbl 200
+ClrGraph
+10→X
+10→Y
+1→DX
+0→DY
+10→LX
+10→LY
+{X}→List 1
+{Y}→List 2
+10→N
+
+Lbl 201
+ClrGraph
+For 1→I To N
+Plot List 1[I],List 2[I]
+Next
+Plot LX,LY
+Getkey→K
+K=27⇒1→DX:0→DY
+K=28⇒-1→DX:0→DY
+K=25⇒0→DX:1→DY
+K=26⇒0→DX:-1→DY
+K=47⇒Goto 9
+X+DX→X
+Y+DY→Y
+If X<0 Or X>126 Or Y<0 Or Y>62
+Then Goto 9
+IfEnd
+If X=LX And Y=LY
+Then N+1→N
+Augment(List 1,{X})→List 1
+Augment(List 2,{Y})→List 2
+Int(Rand*116)+5→LX
+Int(Rand*53)+5→LY
+Else
+ShiftList(List 1,-1)
+List 1[1]→List 1[N]
+List 1[N+1]→Delete
+ShiftList(List 2,-1)
+List 2[1]→List 2[N]
+List 2[N+1]→Delete
+IfEnd
+For 2→I To N
+If X=List 1[I] And Y=List 2[I]
+Then Goto 9
+IfEnd
+Goto 201
+
+Lbl 9
+ClrGraph
+Locate 1,1,"GAME OVER"
+Locate 1,3,"Score:"
+Locate 9,3,N-10
+Pause
+Goto 100
+
+"Options placeholder (label 202) - keep simple on calculator"
+Lbl 202
+ClrText
+Locate 1,1,"Options not available"
+Locate 1,3,"on this calulator"
+Pause
+Goto 100

@@ -1,0 +1,13 @@
+{
+  "name": "Pygames Desktop",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "desktop-lite": "latest"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {},
+      "extensions": []
+    }
+  }
+}
