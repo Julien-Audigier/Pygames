@@ -34,23 +34,22 @@ def lerp(end: float, var: float, speed: float=2.5):
    """returns var+result"""
    return var+(end-var)*speed/10
 
-def point_c(angle:float,x,y,width,height):
-    i = ((angle % 360)*math.pi)/180
-    cosi = math.cos(i)
-    sini = math.sin(i)
-    cos2i = cosi*cosi
-    sin2i = sini*sini
-    a = width/2
-    b = height/2
-    b2 = b*b
-    a2 = a*a
-
-    p=((a*b*cosi)//math.sqrt(b2*cos2i+a2*sin2i))+x
-    j=((a*b*sini)//math.sqrt(b2*cos2i+a2*sin2i))+y
-    return(p,j)
+def point_c(angle: float, x, y, width, height):
+    i = (angle * math.pi) / 180
+    a = width / 2
+    b = height / 2
+    p = x + a * math.cos(i)
+    j = y + b * math.sin(i)
+    return (p, j)
 
 def in_ballpark(var, equal, buffer = 10):
     return var < equal + 10 and var > equal - 10
+
+def round_down(var):
+    inter = round(var)
+    if inter > var:
+        return inter-1
+    return inter
 
 class IMAGE:
     def __init__(self, path, x, y, width, height):
@@ -430,10 +429,14 @@ class CARD:
         
         card_rect = surface.get_rect(center=(x, y) if (x is not None and y is not None) else self.surface[1].center)
         
-        #if hover:
-            #if card_rect.collidepoint(pg.mouse.get_pos()[0],pg.mouse.get_pos()[0]):
-                #surface.size = surface.size+hover_offset
-                #card_rect = surface.get_rect(center=(x, y) if (x is not None and y is not None) else self.surface[1].center)
+        if hover:
+            mouse_pos = pg.mouse.get_pos()
+            if card_rect.collidepoint(mouse_pos):
+                w, h = surface.get_size()
+                new_w = w + int(hover_offset)
+                new_h = h + int(hover_offset)
+                surface = pg.transform.scale(surface, (new_w, new_h))
+                card_rect = surface.get_rect(center=card_rect.center)
 
         if shadow:
             shadow_surf = surface.copy()
@@ -481,6 +484,7 @@ class DECK:
         self.x=None
         self.y=None
         self.angle = 0 #Just for easy access, not actually used for drawing/positioning since each card tracks its own rotation and position
+        self.rotation = 0
     
     def shuffle(self):
         """Shuffle the deck using random.shuffle."""
@@ -544,12 +548,38 @@ class DECK:
         for card in self.cards:
             card.set_pos(x, y)
 
+    def move(self, x_offset, y_offset):
+        """Add x_offset to x and y_offset to y"""
+        self.x += x_offset
+        self.y += y_offset
+        for card in self.cards:
+            card.set_pos(card.x + x_offset, card.y + y_offset)
+
     def draw(self, shadow=False, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6):
         """Draw all cards in the deck."""
         for card in self.cards:
             card.draw(shadow=shadow, shadow_alpha=shadow_alpha, shadow_offset=shadow_offset,hover=hover,hover_offset=hover_offset)
 
+    def draw_as_hand(self, center_ellipse:pg.rect.Rect, spacing=10, middle_angle:int = None, shadow=True, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6):
+        total_cards = len(self.cards)
+        if total_cards == 0:
+            return
+        if middle_angle is None:
+            middle_angle = self.angle
+
+        if total_cards % 2 == 0: #Even number of cards
+            start_angle = middle_angle + spacing/2 + (total_cards//2 - 1) * spacing
+        else: #Odd number of cards
+            start_angle = middle_angle + (total_cards//2) * spacing
+            
+        for index, card in enumerate(self.cards):
+            angle = start_angle - index * spacing
+            card.set_pos(*point_c(angle, center_ellipse.centerx, center_ellipse.centery, center_ellipse.width, center_ellipse.height))
+            card.rotate(-(angle-90) - card.rotation) #Rotate card to match its position on the ellipse
+            card.draw(shadow=shadow, shadow_alpha=shadow_alpha, shadow_offset=shadow_offset,hover=hover,hover_offset=hover_offset)   
+    
     def rotate(self, angle=int):
+        self.rotation = (self.rotation + angle) % 360
         for card in self.cards:
             card.rotate(angle)
 
@@ -561,6 +591,10 @@ menuButton1 = TEXT("Play", 550, 225, mode="topleft", font_size=32, color=(255, 2
 menuButton2 = TEXT("Edit Settings", 550, 300, mode="topleft", font_size=32, color=(255, 255, 255), hover_color=(220, 50, 50))
 menuButton3 = TEXT("Exit", 550, 375, mode="topleft", font_size=32, color=(255, 255, 255), hover_color=(220, 50, 50))
  #Play
+  #Turns
+hitButton = TEXT("Hit", 375, 390, mode="topleft", font_size=32, color=(225,225, 225), hover_color=(220, 50, 50))
+stayButton = TEXT("Stay", 375, 425, mode="topleft", font_size=32, color=(225,225, 225), hover_color=(220, 50, 50))
+  #vars
 playBackground = IMAGE("Blackjack/GreenBackground1.jpg", -40, 0, 1600, 600)
 card_index = 0
 deckCreate_speed = 1
@@ -572,6 +606,7 @@ decks = [] #[Ai, Players, Dealer]
 deck_index = 0
 decks_turning = 0
 deck_speed = 1
+turned = 0
 #Settings
 settingsBackground = IMAGE("Blackjack/GreenBackground2.jpg", 0, 0, 800, 800)
 numDecks = 1
@@ -654,6 +689,7 @@ while running:
                     deck_index = 0
                     play_mode = "create deck"
                     decks_turning = 0
+                    turned = 0
                 case "create deck":
                     tempDeck.draw(shadow=True, shadow_alpha=50)  # Draw all cards in the temporary deck
                     if card_index < len(gameDeck.cards):
@@ -715,7 +751,7 @@ while running:
                         card = deck.cards[-1]
                         target_x = deck.x
                         target_y = deck.y
-                        target_r = angle+90 #Rotation
+                        target_r = angle+270 #Rotation
                         side = "back"
                         deck.flip_card(-1, side)
                         card.rotation = 0
@@ -739,6 +775,7 @@ while running:
                                 play_mode = "turns"
                                 continue
                         #New Card
+
                         angle += 360/totalPlayers
                         deck = decks[deck_index]
                         deck.resize(20)
@@ -748,7 +785,7 @@ while running:
                         card = deck.cards[-1]
                         target_x = deck.x
                         target_y = deck.y
-                        target_r = angle+90 #Rotation
+                        target_r = angle+270 #Rotation
                         deck.flip_card(-1,side=side)
                         card.rotation = 0 #Looks better
 
@@ -757,7 +794,7 @@ while running:
                         i.resize(20) #Just for insurance
                         decks[index].draw()
                 case "turns":
-                    if keyPressed == pg.K_SPACE and decks_turning <= 0:
+                    if stayButton.is_clicked() and decks_turning <= 0:
                         deck_index+=1
                         decks_turning = 360/totalPlayers
                     if deck_index+1 > len(decks): #Everyone played
@@ -765,17 +802,36 @@ while running:
 
                    # Apply rotation to all decks if turning is active
                     if decks_turning > 0:
+                        turned += 5 * deck_speed
                         for index, i in enumerate(decks):
                             i.angle += 5 * deck_speed
                             xy = point_c(i.angle, deckEllipse.centerx, deckEllipse.centery, deckEllipse.width, deckEllipse.height)
-                            i.pos(xy[0], xy[1])
+                            i.move(xy[0]-i.x,xy[1]-i.y)
                             i.rotate(-5 * deck_speed)
-                        decks_turning -= 5 * deck_speed  # Decrement only once per frame
+                    decks_turning -= 5 * deck_speed  # Decrement only once per frame
+                    
+                    if turned >= 360/totalPlayers: #Reset angles after full turn
+                        decks_turning = 0
+                        for index, i in enumerate(decks):
+                            for n in range(0, int(turned/(5 * deck_speed))):
+                                i.angle -= 5 * deck_speed #Reset angle to original position
+                                i.rotate(5 * deck_speed) #Reset rotation to original position
+                            i.angle += 360/totalPlayers #Set angle to new position
+                            i.rotate(-360/totalPlayers) #Rotate to new position
+                            xy = point_c(i.angle, deckEllipse.centerx, deckEllipse.centery, deckEllipse.width, deckEllipse.height)
+                            i.pos(xy[0],xy[1])
+                        turned = 0
 
-                    # Draw all decks
-                    for index, i in enumerate(decks):
+
+                    # Draw
+                    gameDeck.draw(shadow=True, shadow_alpha=50)  # Draw the main deck in the center
+                    for index, i in enumerate(decks): #Decks
                         i.resize(20)  # Just for insurance
-                        decks[index].draw()
+                        decks[index].draw_as_hand(deckEllipse)  # Draw each deck as a hand with its current angle
+                     #Buttons
+                    if decks_turning <= 0: #Only show buttons when not turning
+                        hitButton.draw()
+                        stayButton.draw()
                 case _:
                     mode = "menu"
         case "settings":
