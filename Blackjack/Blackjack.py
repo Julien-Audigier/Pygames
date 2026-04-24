@@ -420,7 +420,7 @@ class CARD:
         self.surface = suit.draw(name, 0, 0, self.font_size, card_color=card_color, rotation=rotation)
         self.side = side
 
-    def draw(self, x = None, y = None, rotation=0, shadow=False, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6):
+    def draw(self, x = None, y = None, rotation=0, shadow=False, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6, front_hover:bool=False):
         surface = self.surface[0]
         self.x = x if x is not None else self.surface[1].centerx
         self.y = y if y is not None else self.surface[1].centery
@@ -429,7 +429,7 @@ class CARD:
         
         card_rect = surface.get_rect(center=(x, y) if (x is not None and y is not None) else self.surface[1].center)
         
-        if hover:
+        if (hover and not front_hover) or (hover and front_hover and self.side == "front"):
             mouse_pos = pg.mouse.get_pos()
             if card_rect.collidepoint(mouse_pos):
                 w, h = surface.get_size()
@@ -469,6 +469,12 @@ class CARD:
         x = math.sin((rotation % 360)) * distance
         y = math.sqrt(x*x - distance*distance) if x*x-distance*distance >= 0 else 0
         self.set_pos(self.x + x, self.y + y)
+
+    def is_clicked(self, mouse_pos):
+        # Get the current drawn surface and compute its rect at the card's center.
+        surface = self.surface[0]
+        card_rect = surface.get_rect(center=(self.x, self.y))
+        return card_rect.collidepoint(mouse_pos)
 
 class DECK:
     def __init__(self, num_decks=1, deck = None):
@@ -555,15 +561,17 @@ class DECK:
         for card in self.cards:
             card.set_pos(card.x + x_offset, card.y + y_offset)
 
-    def draw(self, shadow=False, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6):
+    def draw(self, shadow=False, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6, front_hover = False):
         """Draw all cards in the deck."""
         for card in self.cards:
-            card.draw(shadow=shadow, shadow_alpha=shadow_alpha, shadow_offset=shadow_offset,hover=hover,hover_offset=hover_offset)
+            card.draw(shadow=shadow, shadow_alpha=shadow_alpha, shadow_offset=shadow_offset,hover=hover,hover_offset=hover_offset, front_hover=front_hover)
 
-    def draw_as_hand(self, center_ellipse:pg.rect.Rect, spacing=10, middle_angle:int = None, shadow=True, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6):
+    def draw_as_hand(self, center_ellipse:pg.rect.Rect, spacing=10, middle_angle:int = None, shadow=True, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6, front_hover = False, exclude_cards=None):
         total_cards = len(self.cards)
         if total_cards == 0:
             return
+        if exclude_cards is None:
+            exclude_cards = []
         if middle_angle is None:
             middle_angle = self.angle
 
@@ -573,10 +581,12 @@ class DECK:
             start_angle = middle_angle + (total_cards//2) * spacing
             
         for index, card in enumerate(self.cards):
+            if card in exclude_cards:
+                continue
             angle = start_angle - index * spacing
             card.set_pos(*point_c(angle, center_ellipse.centerx, center_ellipse.centery, center_ellipse.width, center_ellipse.height))
             card.rotate(-(angle-90) - card.rotation) #Rotate card to match its position on the ellipse
-            card.draw(shadow=shadow, shadow_alpha=shadow_alpha, shadow_offset=shadow_offset,hover=hover,hover_offset=hover_offset)   
+            card.draw(shadow=shadow, shadow_alpha=shadow_alpha, shadow_offset=shadow_offset,hover=hover,hover_offset=hover_offset, front_hover=front_hover)   
     
     def rotate(self, angle=int):
         self.rotation = (self.rotation + angle) % 360
@@ -607,6 +617,9 @@ deck_index = 0
 decks_turning = 0
 deck_speed = 1
 turned = 0
+selected_card = None  # For moving clicked card to bottom right
+last_card = None  # To track the last card drawn for animation
+selected_card_size = 90
 #Settings
 settingsBackground = IMAGE("Blackjack/GreenBackground2.jpg", 0, 0, 800, 800)
 numDecks = 1
@@ -646,234 +659,267 @@ keyPressed = None
 card = CARD(suits[0],"0",0) #temp card
 deckEllipse = pg.rect.Rect(0,0,667,469)
 deckEllipse.center = (400,300)
-
+mouse_click_pos = None
 
 while running:
-    screen.fill((0, 153, 0)) #Clear screen for each frame
+    try:
+        screen.fill((0, 153, 0)) #Clear screen for each frame
 
-    for event in pg.event.get():
-        if event.type == pg.QUIT:
-            running = False
-        if event.type == pg.KEYDOWN:
-            keyPressed = event.key
-        if event.type == pg.KEYUP:
-            keyPressed = None
-            
-    match mode:
-        case "menu":
-            menuBackground.draw()
-            menuText1.draw()
-            menuButton1.draw()
-            menuButton2.draw()
-            menuButton3.draw()
-            menuButton1.is_clicked() and (mode := "play")  # Switch to play mode if clicked
-            menuButton1.is_clicked() and (play_mode := "setup vars")
-            menuButton2.is_clicked() and (mode := "settings")  # Switch to settings mode if clicked
-            menuButton3.is_clicked() and (running := False)  # Exit if clicked  # Example card drawing
-        case "play":
-            playBackground.draw()
-            match play_mode:
-                case "setup vars":
-                    gameDeck.cards = []
-                    gameDeck = DECK(num_decks=numDecks)
-                    tempDeck.cards = []
-                    gameDeck.shuffle()
-                    gameDeck.flip_all("back")
-                    gameDeck.resize(20)
-                    card_index = 0
-                    deckCreate_speed = 1
-                    player_index = 0
-                    ai_index = 0
-                    angle =0
-                    decks = [] #[Ai, Players, Dealer]
-                    deck_index = 0
-                    play_mode = "create deck"
-                    decks_turning = 0
-                    turned = 0
-                case "create deck":
-                    tempDeck.draw(shadow=True, shadow_alpha=50)  # Draw all cards in the temporary deck
-                    if card_index < len(gameDeck.cards):
-                        card = gameDeck.card(card_index)
-
-                        if keyPressed == pg.K_SPACE:   # Speed up animation when space is held
-                            deckCreate_speed = lerp(5, deckCreate_speed, 0.1)
-                        elif keyPressed == pg.K_RETURN:
-                            for i in range(card_index, len(gameDeck.cards)): #End animation
-                                gameDeck.resize(start_size)
-                                gameDeck.card(i).set_pos(400, 300)  # Set all remaining cards to the center
-                                gameDeck.card(i).resize(30)  # Ensure all cards are the correct size
-                                gameDeck.card(i).rotate(random.uniform(-8, 8))  # Add some random rotation for visual interest
-                                gameDeck.card(i).set_pos(random.randint(397, 403), random.randint(297, 303))  # Start from the left edge
-                                tempDeck.add_card(gameDeck.card(i))
-                            card_index = len(gameDeck.cards)  # Skip to the end of the deck
-                        else:
-                            deckCreate_speed = lerp(1, deckCreate_speed, 0.75)  # Normal speed when space is not held
-
-                        if card.y <= 0:
-                            card.rotate(random.uniform(-8, 8))
-                            card.set_pos(random.randint(397, 403), -10)  # Start from the left edge
-                            start_size = 20
-                            card.resize(card.font_size * 2)  # Start larger for dramatic effect
-
-                        card.resize(round(max(start_size, card.font_size - deckCreate_speed)))  # Gradually shrink to normal size
-                        card.set_pos(card.x, lerp(317, card.y, deckCreate_speed))
-                        if card.y >= 301:  # Snap to final position and next
-                            card.set_pos(card.x, random.randint(297, 303))
-                            card.resize(start_size)  # Ensure final size is correct
-                            tempDeck.add_card(card)
-                            card_index += 1
-
-                        card.draw(shadow=True)
-                    else: #End creation of deck
-                        play_mode = "deal down"
-                        gameDeck.cards = tempDeck.cards  # Replace gameDeck with the animated tempDeck
-                        gameDeck.resize(start_size)
-                case "deal down":
-                    gameDeck.draw(shadow=True, shadow_alpha=50)
-                    if decks==[]: #Start of dealing
-                        totalPlayers = numAi+numPlayers+1
-                        angle = 90 #Starting angle
-                        for d in range(0,totalPlayers): #Set up Decks
-                            xy = point_c(angle,400,300,deckEllipse.width,deckEllipse.height)
-                            decks.append(DECK(deck=[]))
-                            decks[d].pos(xy[0],xy[1])
-                            decks[d].resize(20)
-                            decks[d].angle = angle
-                            angle -= 360/totalPlayers
-                        angle = 90 #Return to starting angle
-
-                        #Setup First card and Deck
-                        deck = decks[deck_index]
-                        deck.resize(20)
-                        deck.add_card(gameDeck.card(-1))
-                        gameDeck.cards[-1] = "~"  #Set card for easy removal
-                        gameDeck.cards.remove("~") #Remove Card
-                        card = deck.cards[-1]
-                        target_x = deck.x
-                        target_y = deck.y
-                        target_r = angle+270 #Rotation
-                        side = "back"
-                        deck.flip_card(-1, side)
-                        card.rotation = 0
-
-                    #Modify Card Values
-                    card.x = round(lerp(target_x,card.x,1.5))
-                    card.y = round(lerp(target_y,card.y,1.5))
-                    card.rotation = round(lerp(target_r,card.rotation,3.5))
-
-                    if in_ballpark(card.x, target_x) and in_ballpark(card.y, target_y): #Give some wiggle room
-                        card.x = target_x #Set values to target
-                        card.y = target_y
-                        card.rotation = target_r
-                        #Next deck
-                        deck_index += 1 #Next deck
-                        if deck_index == len(decks) or len(gameDeck.cards) <= 0: #loop if run of decks
-                            side = "front"
-                            deck_index = 0
-                            if len(deck.cards) == num_delt or len(gameDeck.cards) <= 0: #End dealing ******
-                                deck_index = 0
-                                play_mode = "turns"
-                                continue
-                        #New Card
-
-                        angle += 360/totalPlayers
-                        deck = decks[deck_index]
-                        deck.resize(20)
-                        deck.add_card(gameDeck.card(-1)) #Add a copy of card to deck
-                        gameDeck.cards[-1] = "~"
-                        gameDeck.cards.remove("~")#Remove orignal Card
-                        card = deck.cards[-1]
-                        target_x = deck.x
-                        target_y = deck.y
-                        target_r = angle+270 #Rotation
-                        deck.flip_card(-1,side=side)
-                        card.rotation = 0 #Looks better
-
-
-                    for index,i in enumerate(decks): #Draw Decks
-                        i.resize(20) #Just for insurance
-                        decks[index].draw()
-                case "turns":
-                    if stayButton.is_clicked() and decks_turning <= 0:
-                        deck_index+=1
-                        decks_turning = 360/totalPlayers
-                    if deck_index+1 > len(decks): #Everyone played
-                        play_mode = None #End Game
-
-                   # Apply rotation to all decks if turning is active
-                    if decks_turning > 0:
-                        turned += 5 * deck_speed
-                        for index, i in enumerate(decks):
-                            i.angle += 5 * deck_speed
-                            xy = point_c(i.angle, deckEllipse.centerx, deckEllipse.centery, deckEllipse.width, deckEllipse.height)
-                            i.move(xy[0]-i.x,xy[1]-i.y)
-                            i.rotate(-5 * deck_speed)
-                    decks_turning -= 5 * deck_speed  # Decrement only once per frame
-                    
-                    if turned >= 360/totalPlayers: #Reset angles after full turn
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                running = False
+            if event.type == pg.KEYDOWN:
+                keyPressed = event.key
+            if event.type == pg.KEYUP:
+                keyPressed = None
+            if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:  # Left mouse button
+                mouse_click_pos = event.pos
+                
+        match mode:
+            case "menu":
+                menuBackground.draw()
+                menuText1.draw()
+                menuButton1.draw()
+                menuButton2.draw()
+                menuButton3.draw()
+                menuButton1.is_clicked() and (mode := "play")  # Switch to play mode if clicked
+                menuButton1.is_clicked() and (play_mode := "setup vars")
+                menuButton2.is_clicked() and (mode := "settings")  # Switch to settings mode if clicked
+                menuButton3.is_clicked() and (running := False)  # Exit if clicked  # Example card drawing
+            case "play":
+                playBackground.draw()
+                match play_mode:
+                    case "setup vars":
+                        gameDeck.cards = []
+                        gameDeck = DECK(num_decks=numDecks)
+                        tempDeck.cards = []
+                        gameDeck.shuffle()
+                        gameDeck.flip_all("back")
+                        gameDeck.resize(20)
+                        card_index = 0
+                        deckCreate_speed = 1
+                        player_index = 0
+                        ai_index = 0
+                        angle =0
+                        decks = [] #[Ai, Players, Dealer]
+                        deck_index = 0
+                        play_mode = "create deck"
                         decks_turning = 0
-                        for index, i in enumerate(decks):
-                            for n in range(0, int(turned/(5 * deck_speed))):
-                                i.angle -= 5 * deck_speed #Reset angle to original position
-                                i.rotate(5 * deck_speed) #Reset rotation to original position
-                            i.angle += 360/totalPlayers #Set angle to new position
-                            i.rotate(-360/totalPlayers) #Rotate to new position
-                            xy = point_c(i.angle, deckEllipse.centerx, deckEllipse.centery, deckEllipse.width, deckEllipse.height)
-                            i.pos(xy[0],xy[1])
                         turned = 0
+                        selected_card = None
+                        last_card = None
+                    case "create deck":
+                        tempDeck.draw(shadow=True, shadow_alpha=50)  # Draw all cards in the temporary deck
+                        if card_index < len(gameDeck.cards):
+                            card = gameDeck.card(card_index)
+
+                            if keyPressed == pg.K_SPACE:   # Speed up animation when space is held
+                                deckCreate_speed = lerp(5, deckCreate_speed, 0.1)
+                            elif keyPressed == pg.K_RETURN:
+                                for i in range(card_index, len(gameDeck.cards)): #End animation
+                                    gameDeck.resize(start_size)
+                                    gameDeck.card(i).set_pos(400, 300)  # Set all remaining cards to the center
+                                    gameDeck.card(i).resize(30)  # Ensure all cards are the correct size
+                                    gameDeck.card(i).rotate(random.uniform(-8, 8))  # Add some random rotation for visual interest
+                                    gameDeck.card(i).set_pos(random.randint(397, 403), random.randint(297, 303))  # Start from the left edge
+                                    tempDeck.add_card(gameDeck.card(i))
+                                card_index = len(gameDeck.cards)  # Skip to the end of the deck
+                            else:
+                                deckCreate_speed = lerp(1, deckCreate_speed, 0.75)  # Normal speed when space is not held
+
+                            if card.y <= 0:
+                                card.rotate(random.uniform(-8, 8))
+                                card.set_pos(random.randint(397, 403), -10)  # Start from the left edge
+                                start_size = 20
+                                card.resize(card.font_size * 2)  # Start larger for dramatic effect
+
+                            card.resize(round(max(start_size, card.font_size - deckCreate_speed)))  # Gradually shrink to normal size
+                            card.set_pos(card.x, lerp(317, card.y, deckCreate_speed))
+                            if card.y >= 301:  # Snap to final position and next
+                                card.set_pos(card.x, random.randint(297, 303))
+                                card.resize(start_size)  # Ensure final size is correct
+                                tempDeck.add_card(card)
+                                card_index += 1
+
+                            card.draw(shadow=True)
+                        else: #End creation of deck
+                            play_mode = "deal down"
+                            gameDeck.cards = tempDeck.cards  # Replace gameDeck with the animated tempDeck
+                            gameDeck.resize(start_size)
+                    case "deal down":
+                        gameDeck.draw(shadow=True, shadow_alpha=50)
+                        if decks==[]: #Start of dealing
+                            totalPlayers = numAi+numPlayers+1
+                            angle = 90 #Starting angle
+                            for d in range(0,totalPlayers): #Set up Decks
+                                xy = point_c(angle,400,300,deckEllipse.width,deckEllipse.height)
+                                decks.append(DECK(deck=[]))
+                                decks[d].pos(xy[0],xy[1])
+                                decks[d].resize(20)
+                                decks[d].angle = angle
+                                angle -= 360/totalPlayers
+                            angle = 90 #Return to starting angle
+
+                            #Setup First card and Deck
+                            deck = decks[deck_index]
+                            deck.resize(20)
+                            deck.add_card(gameDeck.card(-1))
+                            gameDeck.cards[-1] = "~"  #Set card for easy removal
+                            gameDeck.cards.remove("~") #Remove Card
+                            card = deck.cards[-1]
+                            target_x = deck.x
+                            target_y = deck.y
+                            target_r = angle+270 #Rotation
+                            side = "back"
+                            deck.flip_card(-1, side)
+                            card.rotation = 0
+
+                        #Modify Card Values
+                        card.x = round(lerp(target_x,card.x,1.5))
+                        card.y = round(lerp(target_y,card.y,1.5))
+                        card.rotation = round(lerp(target_r,card.rotation,3.5))
+
+                        if in_ballpark(card.x, target_x) and in_ballpark(card.y, target_y): #Give some wiggle room
+                            card.x = target_x #Set values to target
+                            card.y = target_y
+                            card.rotation = target_r
+                            #Next deck
+                            deck_index += 1 #Next deck
+                            if deck_index == len(decks) or len(gameDeck.cards) <= 0: #loop if run of decks
+                                side = "front"
+                                deck_index = 0
+                                if len(deck.cards) == num_delt or len(gameDeck.cards) <= 0: #End dealing ******
+                                    deck_index = 0
+                                    play_mode = "turns"
+                                    continue
+                            #New Card
+
+                            angle += 360/totalPlayers
+                            deck = decks[deck_index]
+                            deck.resize(20)
+                            deck.add_card(gameDeck.card(-1)) #Add a copy of card to deck
+                            gameDeck.cards[-1] = "~"
+                            gameDeck.cards.remove("~")#Remove orignal Card
+                            card = deck.cards[-1]
+                            target_x = deck.x
+                            target_y = deck.y
+                            target_r = angle+270 #Rotation
+                            deck.flip_card(-1,side=side)
+                            card.rotation = 0 #Looks better
 
 
-                    # Draw
-                    gameDeck.draw(shadow=True, shadow_alpha=50)  # Draw the main deck in the center
-                    for index, i in enumerate(decks): #Decks
-                        i.resize(20)  # Just for insurance
-                        decks[index].draw_as_hand(deckEllipse)  # Draw each deck as a hand with its current angle
-                     #Buttons
-                    if decks_turning <= 0: #Only show buttons when not turning
-                        hitButton.draw()
-                        stayButton.draw()
-                case _:
-                    mode = "menu"
-        case "settings":
-            settingsBackground.draw()
-            numDecksText.draw()
-            numPlayerText.draw()
-            numAiText.draw()
-            numDeckButton.draw()
-            numPlayerButton.draw()
-            numAiButton.draw()
-            settingButton1.draw()
-            pixelizedText.draw()
-            pixelizedButton.draw()
-            numDeltText.draw()
-            numDeltButton.draw()
-            if pixelize: numPixelText.draw()
-            if pixelize: numPixelButton.draw()
-            if pixelize and numPixelButton.is_released():
-                numPixels = (numPixels % 6) + 1  # Cycle from 2 to 6
-                if numPixels == 1: numPixels = 2
-                numPixelButton.change_text(f"{numPixels}")
-            if numDeckButton.is_released():
-                numDecks = ((numDecks) % 5)+1 # Cycle from 1 to 5
-                numDeckButton.change_text(f"{numDecks}")
-            if numPlayerButton.is_released():
-                numPlayers = (numPlayers + 1) % 11  # Cycle from 0 to 10
-                numPlayerButton.change_text(f"{numPlayers}")
-            if numAiButton.is_released():
-                numAi = (numAi + 1) % 11  # Cycle from 0 to 10
-                numAiButton.change_text(f"{numAi}")
-            if pixelizedButton.is_released():
-                pixelize = not pixelize
-                pixelizedButton.change_text("On" if pixelize else "Off")
-            if numDeltButton.is_released():
-                num_delt = ((num_delt) % 5)+1 # Cycle from 1 to 5
-                numDeltButton.change_text(f"{num_delt}")
-            if settingButton1.is_clicked() or settingButton1.is_released():
-                if numPlayers + numAi == 0:
-                    invalidInputText.draw()
-                else:
-                    mode = "menu"
-    if pixelize: pixelize_screen(numPixels)
-    pg.display.flip()
-    clock.tick(60)
+                        for index,i in enumerate(decks): #Draw Decks
+                            i.resize(20) #Just for insurance
+                            decks[index].draw()
+                    case "turns":
+                        if stayButton.is_clicked() and decks_turning <= 0:
+                            deck_index+=1
+                            decks_turning = 360/totalPlayers
+                        if deck_index+1 > len(decks): #Everyone played
+                            play_mode = None #End Game
+
+                    # Apply rotation to all decks if turning is active
+                        if decks_turning > 0:
+                            selected_card = None  # Deselect any selected card during rotation
+                            turned += 5 * deck_speed
+                            for index, i in enumerate(decks):
+                                i.angle += 5 * deck_speed
+                                xy = point_c(i.angle, deckEllipse.centerx, deckEllipse.centery, deckEllipse.width, deckEllipse.height)
+                                i.move(xy[0]-i.x,xy[1]-i.y)
+                                i.rotate(-5 * deck_speed)
+                        decks_turning -= 5 * deck_speed  # Decrement only once per frame
+                        
+                        if turned >= 360/totalPlayers: #Reset angles after full turn
+                            decks_turning = 0
+                            for index, i in enumerate(decks):
+                                for n in range(0, int(turned/(5 * deck_speed))):
+                                    i.angle -= 5 * deck_speed #Reset angle to original position
+                                    i.rotate(5 * deck_speed) #Reset rotation to original position
+                                i.angle += 360/totalPlayers #Set angle to new position
+                                i.rotate(-360/totalPlayers) #Rotate to new position
+                                xy = point_c(i.angle, deckEllipse.centerx, deckEllipse.centery, deckEllipse.width, deckEllipse.height)
+                                i.pos(xy[0],xy[1])
+                            turned = 0
+
+
+                        # Draw
+                        gameDeck.draw(shadow=True, shadow_alpha=50)  # Draw the main deck in the center
+                        for index, i in enumerate(decks): #Decks
+                            i.resize(20)  # Just for insurance
+                            exclude = [selected_card] if selected_card and selected_card in i.cards else []
+                            if decks_turning > 0:
+                                i.draw_as_hand(deckEllipse, shadow=True, shadow_alpha=50, exclude_cards=exclude)  # Draw each deck as a hand with its current angle and shadow
+                            i.draw_as_hand(deckEllipse,shadow=True, shadow_alpha=50, hover=True, hover_offset = 20, front_hover=True, exclude_cards=exclude)  # Draw each deck as a hand with its current angle
+                        #Buttons
+                        if decks_turning <= 0: #Only show buttons when not turning
+                            hitButton.draw()
+                            stayButton.draw()
+                            
+                            # Handle card clicks
+                            if 'mouse_click_pos' in globals() and mouse_click_pos is not None:                            
+                                for deck in decks:
+                                    for card in deck.cards:
+                                        if selected_card and card == selected_card:
+                                            selected_card.resize(selected_card_size)
+                                        if card.side == "front" and card.is_clicked(mouse_click_pos):
+                                            last_card = selected_card
+                                            if selected_card == card:
+                                                selected_card = None  # Deselect if the same card is clicked again
+                                            else:
+                                                selected_card = card
+                                            break
+                                mouse_click_pos = None  # Reset after handling
+                        
+                        # Draw selected card at bottom right if exists
+                        if selected_card:
+                            selected_card.set_pos(690, 700)  # Bottom right position
+                            selected_card.rotate(-selected_card.rotation)  # Reset rotation
+                            selected_card.resize(selected_card_size)
+                            selected_card.draw(shadow=True, shadow_alpha=50)  # Draw selected card without additional hover effect     
+                    case _:
+                        mode = "menu"
+            case "settings":
+                settingsBackground.draw()
+                numDecksText.draw()
+                numPlayerText.draw()
+                numAiText.draw()
+                numDeckButton.draw()
+                numPlayerButton.draw()
+                numAiButton.draw()
+                settingButton1.draw()
+                pixelizedText.draw()
+                pixelizedButton.draw()
+                numDeltText.draw()
+                numDeltButton.draw()
+                if pixelize: numPixelText.draw()
+                if pixelize: numPixelButton.draw()
+                if pixelize and numPixelButton.is_released():
+                    numPixels = (numPixels % 6) + 1  # Cycle from 2 to 6
+                    if numPixels == 1: numPixels = 2
+                    numPixelButton.change_text(f"{numPixels}")
+                if numDeckButton.is_released():
+                    numDecks = ((numDecks) % 5)+1 # Cycle from 1 to 5
+                    numDeckButton.change_text(f"{numDecks}")
+                if numPlayerButton.is_released():
+                    numPlayers = (numPlayers + 1) % 11  # Cycle from 0 to 10
+                    numPlayerButton.change_text(f"{numPlayers}")
+                if numAiButton.is_released():
+                    numAi = (numAi + 1) % 11  # Cycle from 0 to 10
+                    numAiButton.change_text(f"{numAi}")
+                if pixelizedButton.is_released():
+                    pixelize = not pixelize
+                    pixelizedButton.change_text("On" if pixelize else "Off")
+                if numDeltButton.is_released():
+                    num_delt = ((num_delt) % 5)+1 # Cycle from 1 to 5
+                    numDeltButton.change_text(f"{num_delt}")
+                if settingButton1.is_clicked() or settingButton1.is_released():
+                    if numPlayers + numAi == 0:
+                        invalidInputText.draw()
+                    else:
+                        mode = "menu"
+        if pixelize: pixelize_screen(numPixels)
+        pg.display.flip()
+        clock.tick(60)
+    except KeyboardInterrupt:
+        continue
 pg.quit()
