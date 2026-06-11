@@ -420,16 +420,26 @@ class CARD:
         self.surface = suit.draw(name, 0, 0, self.font_size, card_color=card_color, rotation=rotation)
         self.side = side
 
-    def draw(self, x = None, y = None, rotation=0, shadow=False, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6, front_hover:bool=False):
-        surface = self.surface[0]
-        self.x = x if x is not None else self.surface[1].centerx
-        self.y = y if y is not None else self.surface[1].centery
+    def draw(self, x = None, y = None, rotation=0, side=None, shadow=False, shadow_alpha=128, shadow_offset=(5, 5), hover:bool=False, hover_offset:float=6, front_hover:bool=False):
+        if side is None or side not in ["front", "back"]:
+            side = self.side
+
+        if side == "back":
+            name = None
+        else:
+            name = self.name
+
+        self.x = x if x is not None else self.x
+        self.y = y if y is not None else self.y
+
+        # Render the appropriate side each time we draw.
+        surface, rect = self.suit.draw(name, self.x, self.y, self.font_size, card_color=self.card_color, rotation=self.rotation)
         if rotation != 0:
             surface = pg.transform.rotate(surface, rotation)
-        
-        card_rect = surface.get_rect(center=(x, y) if (x is not None and y is not None) else self.surface[1].center)
-        
-        if (hover and not front_hover) or (hover and front_hover and self.side == "front"):
+
+        card_rect = surface.get_rect(center=(self.x, self.y))
+
+        if (hover and not front_hover) or (hover and front_hover and side == "front"):
             mouse_pos = pg.mouse.get_pos()
             if card_rect.collidepoint(mouse_pos):
                 w, h = surface.get_size()
@@ -443,7 +453,7 @@ class CARD:
             shadow_surf.fill((0, 0, 0, shadow_alpha), special_flags=pg.BLEND_RGBA_MULT)
             shadow_rect = shadow_surf.get_rect(center=(card_rect.centerx + shadow_offset[0], card_rect.centery + shadow_offset[1]))
             screen.blit(shadow_surf, shadow_rect)
-        
+
         screen.blit(surface, card_rect)
     
     def resize(self, font_size):
@@ -620,6 +630,7 @@ turned = 0
 selected_card = None  # For moving clicked card to bottom right
 last_card = None  # To track the last card drawn for animation
 selected_card_size = 90
+hit_card = None
 #Settings
 settingsBackground = IMAGE("Blackjack/GreenBackground2.jpg", 0, 0, 800, 800)
 numDecks = 1
@@ -812,13 +823,23 @@ while running:
                             i.resize(20) #Just for insurance
                             decks[index].draw()
                     case "turns":
-                        if stayButton.is_clicked() and decks_turning <= 0:
+                        #Buttons
+                        if stayButton.is_clicked() and decks_turning <= 0 and deck_index > numAi:
                             deck_index+=1
                             decks_turning = 360/totalPlayers
+
+                        if hitButton.is_released() and decks_turning <= 0 and deck_index > numAi: #Player chooses to hit
+                                hit_card = gameDeck.pick_card()
+                                hit_card.side = "front"
+                                gameDeck.cards[-1] = "~"
+                                gameDeck.cards.remove("~")
+                                decks[deck_index].add_card(hit_card)
+
+                        #End Game
                         if deck_index+1 > len(decks): #Everyone played
                             play_mode = None #End Game
-
-                    # Apply rotation to all decks if turning is active
+                        
+                        # Apply rotation to all decks if turning is active
                         if decks_turning > 0:
                             selected_card = None  # Deselect any selected card during rotation
                             turned += 5 * deck_speed
@@ -841,7 +862,6 @@ while running:
                                 i.pos(xy[0],xy[1])
                             turned = 0
 
-
                         # Draw
                         gameDeck.draw(shadow=True, shadow_alpha=50)  # Draw the main deck in the center
                         for index, i in enumerate(decks): #Decks
@@ -849,9 +869,13 @@ while running:
                             exclude = [selected_card] if selected_card and selected_card in i.cards else []
                             if decks_turning > 0:
                                 i.draw_as_hand(deckEllipse, shadow=True, shadow_alpha=50, exclude_cards=exclude)  # Draw each deck as a hand with its current angle and shadow
-                            i.draw_as_hand(deckEllipse,shadow=True, shadow_alpha=50, hover=True, hover_offset = 20, front_hover=True, exclude_cards=exclude)  # Draw each deck as a hand with its current angle
+                            elif index == deck_index:
+                                i.draw_as_hand(deckEllipse,shadow=True, shadow_alpha=50, hover=True, hover_offset = 20, exclude_cards=exclude)  # Draw current deck with hover effect
+                            else:
+                                i.draw_as_hand(deckEllipse,shadow=True, shadow_alpha=50, hover=True, hover_offset = 20, front_hover=True, exclude_cards=exclude)  # Draw each deck as a hand with its current angle
+                        
                         #Buttons
-                        if decks_turning <= 0: #Only show buttons when not turning
+                        if decks_turning <= 0 and deck_index > numAi: #Only show buttons when not turning
                             hitButton.draw()
                             stayButton.draw()
                             
@@ -861,7 +885,8 @@ while running:
                                     for card in deck.cards:
                                         if selected_card and card == selected_card:
                                             selected_card.resize(selected_card_size)
-                                        if card.side == "front" and card.is_clicked(mouse_click_pos):
+                                        # Only allow selecting front-facing cards, or current player's cards that should be visible
+                                        if (card.side == "front" or decks[deck_index].cards.count(card) >= 1 ) and card.is_clicked(mouse_click_pos): #Allow clicking on front cards in current deck
                                             last_card = selected_card
                                             if selected_card == card:
                                                 selected_card = None  # Deselect if the same card is clicked again
@@ -871,11 +896,11 @@ while running:
                                 mouse_click_pos = None  # Reset after handling
                         
                         # Draw selected card at bottom right if exists
-                        if selected_card:
+                        if selected_card:  # Ensure the selected card is face up
                             selected_card.set_pos(690, 700)  # Bottom right position
                             selected_card.rotate(-selected_card.rotation)  # Reset rotation
                             selected_card.resize(selected_card_size)
-                            selected_card.draw(shadow=True, shadow_alpha=50)  # Draw selected card without additional hover effect     
+                            selected_card.draw(shadow=True, shadow_alpha=50, side="front")  # Draw selected card without additional hover effect                        
                     case _:
                         mode = "menu"
             case "settings":
