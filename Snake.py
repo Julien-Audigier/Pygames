@@ -140,7 +140,6 @@ def showBoard(board,snake,food):
                 center = (x * SCREEN_VAR + SCREEN_VAR // 2, y * SCREEN_VAR + SCREEN_VAR // 2)
                 radius = SCREEN_VAR // 2 - 3
                 pygame.draw.circle(screen, (255, 0, 0), center, radius)
-    pygame.display.flip()  # Update the display
 
 def genBoard(length,height):
     board = []
