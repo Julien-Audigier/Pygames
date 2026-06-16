@@ -189,7 +189,7 @@ while running:
             snake = [[8,5],[7,5],[6,5]]
             food = []
             for i in range(10): #Make Food
-                for i in range(1000):
+                for attempt in range(1000):
                     food.append([random.randint(1, BOARD_WIDTH), random.randint(1, BOARD_HEIGHT)])
                     if food[-1] in snake or food[-1] in food[:-1]:
                         food.pop()
@@ -209,7 +209,7 @@ while running:
                 snake.append(new_head)
                 if new_head in food:
                     food.remove(new_head)
-                    for i in range(100):
+                    for attempt in range(100):
                         food.append([random.randint(1, BOARD_WIDTH), random.randint(1, BOARD_HEIGHT)])
                         if food[-1] in snake or food[-1] in food[:-1]:
                             food.pop()
